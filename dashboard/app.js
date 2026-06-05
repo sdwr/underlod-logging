@@ -5,6 +5,10 @@
 const LS_URL = "underlod.worker_url";
 const LS_TOKEN = "underlod.token";
 
+// Default worker URL — not a secret (it's in the game binary). Saved
+// localStorage value still takes precedence if the user changed it.
+const DEFAULT_WORKER_URL = "https://underlod-logging.sdwr.workers.dev";
+
 const $ = (id) => document.getElementById(id);
 
 function setStatus(msg, isError = false) {
@@ -14,7 +18,7 @@ function setStatus(msg, isError = false) {
 }
 
 function loadCreds() {
-  $("worker-url").value = localStorage.getItem(LS_URL) || "";
+  $("worker-url").value = localStorage.getItem(LS_URL) || DEFAULT_WORKER_URL;
   $("token").value = localStorage.getItem(LS_TOKEN) || "";
 }
 
@@ -30,7 +34,7 @@ function saveCreds() {
 function clearCreds() {
   localStorage.removeItem(LS_URL);
   localStorage.removeItem(LS_TOKEN);
-  $("worker-url").value = "";
+  $("worker-url").value = DEFAULT_WORKER_URL;
   $("token").value = "";
   $("content").hidden = true;
   $("empty").hidden = false;
