@@ -11,7 +11,7 @@
  */
 
 export interface WorkerEnv {
-	CRASHES: R2Bucket;
+	BUCKET: R2Bucket;
 	DASHBOARD_TOKEN: string;
 }
 
@@ -58,7 +58,7 @@ async function ingest(req: Request, env: WorkerEnv): Promise<Response> {
 	const id = crypto.randomUUID();
 	const key = `events/${day}/${id}.ndjson`;
 
-	await env.CRASHES.put(key, body, {
+	await env.BUCKET.put(key, body, {
 		httpMetadata: { contentType: "application/x-ndjson" },
 		customMetadata: {
 			cf_ray: req.headers.get("cf-ray") || "",
@@ -99,14 +99,14 @@ async function listEvents(req: Request, env: WorkerEnv): Promise<Response> {
 
 	const prefix = day ? `events/${day}/` : "events/";
 
-	const listing = await env.CRASHES.list({ prefix, limit: MAX_LIST_KEYS });
+	const listing = await env.BUCKET.list({ prefix, limit: MAX_LIST_KEYS });
 	// newest first by key (UUIDs aren't sortable but the day prefix is — sort
 	// keys descending so the most recent day appears first)
 	const keys = listing.objects.map((o) => o.key).sort().reverse().slice(0, limit);
 
 	// fetch in parallel, but keep memory bounded
 	const events: any[] = [];
-	const reads = await Promise.all(keys.map((k) => env.CRASHES.get(k)));
+	const reads = await Promise.all(keys.map((k) => env.BUCKET.get(k)));
 	for (const obj of reads) {
 		if (!obj) continue;
 		const body = await obj.text();
@@ -132,7 +132,7 @@ async function listEvents(req: Request, env: WorkerEnv): Promise<Response> {
 async function listDays(req: Request, env: WorkerEnv): Promise<Response> {
 	if (!authOk(req, env)) return unauthorized();
 
-	const listing = await env.CRASHES.list({ prefix: "events/", delimiter: "/", limit: 1000 });
+	const listing = await env.BUCKET.list({ prefix: "events/", delimiter: "/", limit: 1000 });
 	const days = (listing.delimitedPrefixes || [])
 		.map((p) => p.replace(/^events\//, "").replace(/\/$/, ""))
 		.filter(Boolean)

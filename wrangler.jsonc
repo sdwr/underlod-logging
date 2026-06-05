@@ -11,11 +11,11 @@
 		"nodejs_compat"
 	],
 	// R2 bucket binding. Create the bucket once with:
-	//   wrangler r2 bucket create underlod-crashes
+	//   wrangler r2 bucket create underlod-logging
 	"r2_buckets": [
 		{
-			"binding": "CRASHES",
-			"bucket_name": "underlod-crashes"
+			"binding": "BUCKET",
+			"bucket_name": "underlod-logging"
 		}
 	]
 	// Secrets (never commit these — they're configured server-side):

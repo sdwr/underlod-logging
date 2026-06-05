@@ -26,7 +26,7 @@ Data being collected is already sanitized client-side (no user paths, no PII), b
 ### 1. Create the R2 bucket
 
 ```bash
-npx wrangler r2 bucket create underlod-crashes
+npx wrangler r2 bucket create underlod-logging
 ```
 
 The binding is already configured in [wrangler.jsonc](wrangler.jsonc).
@@ -132,6 +132,6 @@ When testing locally, point the dashboard at `http://localhost:8787` and put the
 If the worker breaks, you can always grab files straight from R2:
 
 ```bash
-npx wrangler r2 object list underlod-crashes --prefix events/2026-06-05/
-npx wrangler r2 object get underlod-crashes/events/2026-06-05/<uuid>.ndjson
+npx wrangler r2 object list underlod-logging --prefix events/2026-06-05/
+npx wrangler r2 object get underlod-logging/events/2026-06-05/<uuid>.ndjson
 ```
