@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UNDERLOD telemetry</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<header>
+  <h1>UNDERLOD <span class="muted">telemetry</span></h1>
+  <div class="controls">
+    <label>
+      worker URL
+      <input id="worker-url" type="text" placeholder="https://underlod-logging.<you>.workers.dev" />
+    </label>
+    <label>
+      token
+      <input id="token" type="password" placeholder="DASHBOARD_TOKEN" />
+    </label>
+    <label>
+      day
+      <select id="day"><option value="">(all recent)</option></select>
+    </label>
+    <button id="refresh">refresh</button>
+    <button id="logout" class="ghost">forget</button>
+  </div>
+  <div id="status" class="status"></div>
+</header>
+
+<main>
+  <section id="empty" class="empty">
+    <p>Enter the worker URL and token, then refresh.</p>
+    <p class="muted">Both are stored in localStorage on this device only. No server-side accounts.</p>
+  </section>
+
+  <div id="content" hidden>
+    <section class="cards">
+      <div class="card"><div class="num" id="stat-events">0</div><div class="lbl">events</div></div>
+      <div class="card"><div class="num" id="stat-runs">0</div><div class="lbl">unique runs</div></div>
+      <div class="card"><div class="num" id="stat-installs">0</div><div class="lbl">unique installs</div></div>
+      <div class="card"><div class="num" id="stat-crashes">0</div><div class="lbl">crashes</div></div>
+      <div class="card"><div class="num" id="stat-wins">0</div><div class="lbl">run completes</div></div>
+      <div class="card"><div class="num" id="stat-losses">0</div><div class="lbl">deaths</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>deaths by level</h2>
+      <div id="chart-deaths" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2>win/loss by level</h2>
+      <div id="chart-winloss" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2>most-equipped items at level start</h2>
+      <div id="chart-items" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2>character pick rate</h2>
+      <div id="chart-chars" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2>recent crashes</h2>
+      <div id="crashes" class="crashes"></div>
+    </section>
+
+    <section class="panel">
+      <h2>raw events <span class="muted">(latest 50)</span></h2>
+      <pre id="raw"></pre>
+    </section>
+  </div>
+</main>
+
+<script src="./app.js"></script>
+</body>
+</html>
