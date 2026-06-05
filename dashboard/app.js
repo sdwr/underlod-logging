@@ -49,9 +49,9 @@ async function loadDays() {
   const sel = $("day");
   try {
     const { days } = await api("/days");
-    // server returns [{day, count}] — keep the (all recent) option, append days
+    // keep the (all recent) option, append days
     sel.innerHTML = '<option value="">(all recent)</option>' +
-      days.map((d) => `<option value="${d.day}">${d.day} (${d.count})</option>`).join("");
+      days.map((d) => `<option value="${d}">${d}</option>`).join("");
   } catch (e) {
     // not fatal — user can still refresh without picking a day
     console.warn("days endpoint failed", e);
@@ -70,10 +70,7 @@ async function refresh() {
     setStatus(e.message, true);
     return;
   }
-  const filt = data.filters && (data.filters.day || data.filters.type)
-    ? ` (${[data.filters.day, data.filters.type].filter(Boolean).join(", ")})`
-    : "";
-  setStatus(`${data.event_count} events${filt}.`);
+  setStatus(`${data.event_count} events from ${data.file_count} files${data.truncated ? " (truncated)" : ""}.`);
   render(data.events);
   $("empty").hidden = true;
   $("content").hidden = false;
