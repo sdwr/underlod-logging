@@ -22,6 +22,15 @@
       day
       <select id="day"><option value="">(all recent)</option></select>
     </label>
+    <label>
+      type
+      <select id="type-filter">
+        <option value="">(all)</option>
+        <option value="buy_screen_end">buy_screen_end</option>
+        <option value="level_end">level_end</option>
+        <option value="crash">crash</option>
+      </select>
+    </label>
     <button id="refresh">refresh</button>
     <button id="logout" class="ghost">forget</button>
   </div>
@@ -45,44 +54,37 @@
     </section>
 
     <section class="panel">
-      <h2>deaths by level</h2>
-      <div id="chart-deaths" class="chart"></div>
+      <h2>events <span class="muted">(newest first)</span></h2>
+      <div id="feed" class="feed"></div>
     </section>
 
-    <section class="panel">
-      <h2>win/loss by level</h2>
-      <div id="chart-winloss" class="chart"></div>
-    </section>
+    <details class="panel">
+      <summary><h2>aggregates</h2></summary>
+      <div class="panel-inner">
+        <h3>deaths by level</h3>
+        <div id="chart-deaths" class="chart"></div>
 
-    <section class="panel">
-      <h2>most-equipped items at level start</h2>
-      <div id="chart-items" class="chart"></div>
-    </section>
+        <h3>win/loss by level</h3>
+        <div id="chart-winloss" class="chart"></div>
 
-    <section class="panel">
-      <h2>meta color totals <span class="muted">(items per color, summed across buy-screen-ends)</span></h2>
-      <div id="chart-colors" class="chart"></div>
-    </section>
+        <h3>most-equipped items at level start</h3>
+        <div id="chart-items" class="chart"></div>
 
-    <section class="panel">
-      <h2>meta tiers reached <span class="muted">(times a tier was active at buy-screen-end)</span></h2>
-      <div id="chart-tiers" class="chart"></div>
-    </section>
+        <h3>character pick rate</h3>
+        <div id="chart-chars" class="chart"></div>
 
-    <section class="panel">
-      <h2>character pick rate</h2>
-      <div id="chart-chars" class="chart"></div>
-    </section>
+        <h3>meta color totals</h3>
+        <div id="chart-colors" class="chart"></div>
 
-    <section class="panel">
-      <h2>recent crashes</h2>
-      <div id="crashes" class="crashes"></div>
-    </section>
+        <h3>meta tiers reached</h3>
+        <div id="chart-tiers" class="chart"></div>
+      </div>
+    </details>
 
-    <section class="panel">
-      <h2>raw events <span class="muted">(latest 50)</span></h2>
+    <details class="panel">
+      <summary><h2>raw events <span class="muted">(latest 50)</span></h2></summary>
       <pre id="raw"></pre>
-    </section>
+    </details>
   </div>
 </main>
 

@@ -24,7 +24,6 @@ function loadCreds() {
 
 function saveCreds() {
   let url = $("worker-url").value.trim().replace(/\/$/, "");
-  // auto-prepend https:// if the user pasted a bare hostname
   if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
   $("worker-url").value = url;
   localStorage.setItem(LS_URL, url);
@@ -57,11 +56,10 @@ async function loadDays() {
   const sel = $("day");
   try {
     const { days } = await api("/days");
-    // keep the (all recent) option, append days
+    // server returns [{day, count}] — keep the (all recent) option, append days
     sel.innerHTML = '<option value="">(all recent)</option>' +
-      days.map((d) => `<option value="${d}">${d}</option>`).join("");
+      days.map((d) => `<option value="${d.day}">${d.day} (${d.count})</option>`).join("");
   } catch (e) {
-    // not fatal — user can still refresh without picking a day
     console.warn("days endpoint failed", e);
   }
 }
@@ -70,15 +68,22 @@ async function refresh() {
   saveCreds();
   setStatus("loading...");
   const day = $("day").value;
-  const qs = day ? `?day=${encodeURIComponent(day)}&limit=200` : "?limit=100";
+  const type = $("type-filter").value;
+  const params = new URLSearchParams();
+  if (day) params.set("day", day);
+  if (type) params.set("type", type);
+  params.set("limit", "300");
   let data;
   try {
-    data = await api("/events" + qs);
+    data = await api("/events?" + params.toString());
   } catch (e) {
     setStatus(e.message, true);
     return;
   }
-  setStatus(`${data.event_count} events from ${data.file_count} files${data.truncated ? " (truncated)" : ""}.`);
+  const filt = [];
+  if (day) filt.push(day);
+  if (type) filt.push(type);
+  setStatus(`${data.event_count} events${filt.length ? " (" + filt.join(", ") + ")" : ""}.`);
   render(data.events);
   $("empty").hidden = true;
   $("content").hidden = false;
@@ -89,7 +94,13 @@ async function refresh() {
 // ============================================================
 
 function render(events) {
-  // ---- top-line stats ----
+  renderStats(events);
+  renderFeed(events);
+  renderAggregates(events);
+  $("raw").textContent = events.slice(0, 50).map((e) => JSON.stringify(e)).join("\n");
+}
+
+function renderStats(events) {
   const runs = new Set();
   const installs = new Set();
   let crashes = 0, wins = 0, losses = 0;
@@ -109,8 +120,134 @@ function render(events) {
   $("stat-crashes").textContent = crashes;
   $("stat-wins").textContent = wins;
   $("stat-losses").textContent = losses;
+}
 
-  // ---- deaths by level ----
+// ============================================================
+// Per-event feed
+// ============================================================
+
+function renderFeed(events) {
+  const el = $("feed");
+  el.innerHTML = "";
+  if (events.length === 0) {
+    el.innerHTML = '<div class="muted">no events.</div>';
+    return;
+  }
+  for (const e of events) {
+    el.appendChild(eventCard(e));
+  }
+}
+
+function eventCard(e) {
+  const div = document.createElement("div");
+  div.className = "event event-" + (e.type || "unknown");
+
+  const time = (e.time || "").replace("T", " ").replace("Z", "");
+  const tags = [];
+  tags.push(`<span class="tag tag-type">${escapeHtml(e.type || "?")}</span>`);
+  if (e.type === "level_end") {
+    const o = e.data?.outcome;
+    if (o) tags.push(`<span class="tag tag-${o}">${escapeHtml(o)}</span>`);
+  }
+  if (e.data?.level != null) tags.push(`<span class="tag">L${escapeHtml(String(e.data.level))}</span>`);
+  if (e.data?.ng_plus) tags.push(`<span class="tag">NG+${escapeHtml(String(e.data.ng_plus))}</span>`);
+  if (e.data?.difficulty) tags.push(`<span class="tag">${escapeHtml(e.data.difficulty)}</span>`);
+  if (e.os) tags.push(`<span class="tag tag-muted">${escapeHtml(e.os)}</span>`);
+
+  div.innerHTML = `
+    <div class="event-head">
+      <span class="time">${escapeHtml(time)}</span>
+      ${tags.join(" ")}
+    </div>
+  `;
+
+  const body = document.createElement("div");
+  body.className = "event-body";
+  if (e.type === "crash") {
+    body.appendChild(renderCrashBody(e));
+  } else if (e.type === "buy_screen_end" || e.type === "level_end") {
+    body.appendChild(renderRunBody(e));
+  } else {
+    body.innerHTML = `<pre class="raw">${escapeHtml(JSON.stringify(e.data || {}, null, 2))}</pre>`;
+  }
+  div.appendChild(body);
+  return div;
+}
+
+function renderCrashBody(e) {
+  const wrap = document.createElement("div");
+  wrap.className = "crash-body";
+  const msg = e.data?.message || "";
+  const tb = e.data?.traceback || "";
+  wrap.innerHTML = `
+    <div class="crash-msg">${escapeHtml(msg)}</div>
+    ${tb ? `<pre class="trace">${escapeHtml(tb)}</pre>` : ""}
+  `;
+  return wrap;
+}
+
+function renderRunBody(e) {
+  const wrap = document.createElement("div");
+  wrap.className = "run-body";
+  const d = e.data || {};
+
+  // units + items (by name, no slot numbers)
+  const unitsHtml = (d.units || []).map((u) => {
+    const items = (u.items || []).filter((x) => x && x !== "");
+    const itemsTxt = items.length ? items.join(", ") : "<span class=\"muted\">(no items)</span>";
+    const lvl = u.level != null ? ` L${escapeHtml(String(u.level))}` : "";
+    return `<li><span class="char">${escapeHtml(u.character || "?")}${lvl}</span> — <span class="items">${itemsTxt}</span></li>`;
+  }).join("");
+
+  // meta (colors / tiers / bonuses)
+  let metaHtml = "";
+  if (d.meta) {
+    const colors = d.meta.colors || {};
+    const tiers = d.meta.tiers || {};
+    const bonuses = d.meta.bonuses || {};
+    const colorChips = Object.entries(colors)
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => {
+        const t = Number(tiers[c] || 0);
+        const tierTxt = t > 0 ? ` T${t}` : "";
+        return `<span class="chip chip-${escapeHtml(c)}">${escapeHtml(c)} ${n}${tierTxt}</span>`;
+      }).join(" ");
+    const bonusTxt = Object.entries(bonuses)
+      .map(([s, v]) => `${s} +${(Number(v) * 100).toFixed(0)}%`)
+      .join(", ");
+    if (colorChips || bonusTxt) {
+      metaHtml = `
+        <div class="row"><span class="row-lbl">meta</span><span class="row-val">${colorChips}</span></div>
+        ${bonusTxt ? `<div class="row"><span class="row-lbl">bonuses</span><span class="row-val">${escapeHtml(bonusTxt)}</span></div>` : ""}
+      `;
+    }
+  }
+
+  // misc scalar fields
+  const scalars = [];
+  if (d.gold != null) scalars.push(`gold ${escapeHtml(String(d.gold))}`);
+  if (d.times_rerolled != null) scalars.push(`rerolls ${escapeHtml(String(d.times_rerolled))}`);
+  if (d.time_elapsed != null) scalars.push(`${Math.round(Number(d.time_elapsed))}s`);
+  if (d.damage_dealt != null) scalars.push(`dmg dealt ${escapeHtml(String(Math.round(Number(d.damage_dealt))))}`);
+  if (d.damage_taken != null) scalars.push(`dmg taken ${escapeHtml(String(Math.round(Number(d.damage_taken))))}`);
+  if (Array.isArray(d.passives) && d.passives.length) scalars.push(`passives ${d.passives.length}`);
+  if (Array.isArray(d.perks) && d.perks.length) scalars.push(`perks ${d.perks.length}`);
+
+  wrap.innerHTML = `
+    ${unitsHtml ? `<div class="row"><span class="row-lbl">units</span><ul class="units">${unitsHtml}</ul></div>` : ""}
+    ${metaHtml}
+    ${scalars.length ? `<div class="row"><span class="row-lbl">stats</span><span class="row-val">${scalars.join(" · ")}</span></div>` : ""}
+  `;
+  return wrap;
+}
+
+// ============================================================
+// Secondary aggregates (collapsed by default)
+// ============================================================
+
+function renderAggregates(events) {
+  // deaths by level
   const deathsByLevel = {};
   for (const e of events) {
     if (e.type === "level_end" && e.data?.outcome === "loss") {
@@ -120,7 +257,7 @@ function render(events) {
   }
   renderBars("chart-deaths", deathsByLevel, { sortKey: "key-num" });
 
-  // ---- win/loss by level (stacked) ----
+  // win/loss by level
   const winLossByLevel = {};
   for (const e of events) {
     if (e.type !== "level_end") continue;
@@ -132,52 +269,19 @@ function render(events) {
   }
   renderStacked("chart-winloss", winLossByLevel);
 
-  // ---- item popularity (from buy_screen_end snapshots) ----
+  // item popularity
   const itemCount = {};
   for (const e of events) {
     if (e.type !== "buy_screen_end") continue;
-    const units = e.data?.units || [];
-    for (const u of units) {
-      const items = u.items || [];
-      for (const it of items) {
+    for (const u of e.data?.units || []) {
+      for (const it of u.items || []) {
         if (it && it !== "") itemCount[it] = (itemCount[it] || 0) + 1;
       }
     }
   }
   renderBars("chart-items", itemCount, { sortKey: "value-desc", limit: 25 });
 
-  // ---- meta color totals ----
-  // sum item counts per color across all buy_screen_end events (we have
-  // the per-color counts inline as meta.colors).
-  const colorTotals = {};
-  for (const e of events) {
-    if (e.type !== "buy_screen_end") continue;
-    const colors = e.data && e.data.meta && e.data.meta.colors;
-    if (!colors) continue;
-    for (const k of Object.keys(colors)) {
-      colorTotals[k] = (colorTotals[k] || 0) + Number(colors[k] || 0);
-    }
-  }
-  renderBars("chart-colors", colorTotals, { sortKey: "value-desc" });
-
-  // ---- meta tiers reached ----
-  // count how many buy_screen_end snapshots had each (color, tier) active.
-  const tierCounts = {};
-  for (const e of events) {
-    if (e.type !== "buy_screen_end") continue;
-    const tiers = e.data && e.data.meta && e.data.meta.tiers;
-    if (!tiers) continue;
-    for (const color of Object.keys(tiers)) {
-      const tier = Number(tiers[color] || 0);
-      if (tier > 0) {
-        const key = color + " T" + tier;
-        tierCounts[key] = (tierCounts[key] || 0) + 1;
-      }
-    }
-  }
-  renderBars("chart-tiers", tierCounts, { sortKey: "value-desc" });
-
-  // ---- character pick rate ----
+  // character pick rate
   const charCount = {};
   for (const e of events) {
     if (e.type !== "buy_screen_end") continue;
@@ -187,30 +291,36 @@ function render(events) {
   }
   renderBars("chart-chars", charCount, { sortKey: "value-desc", limit: 25 });
 
-  // ---- recent crashes ----
-  const crashEl = $("crashes");
-  crashEl.innerHTML = "";
-  const crashEvents = events.filter((e) => e.type === "crash").slice(0, 25);
-  if (crashEvents.length === 0) {
-    crashEl.innerHTML = '<div class="muted">no crashes in this slice.</div>';
-  } else {
-    for (const c of crashEvents) {
-      const div = document.createElement("div");
-      div.className = "crash";
-      div.innerHTML = `
-        <div class="meta">${escapeHtml(c.time)} · ${escapeHtml(c.os || "?")} · love ${escapeHtml(c.love_version || "?")} · v${escapeHtml(c.version || "?")}</div>
-        <pre>${escapeHtml(c.data?.message || "")}\n\n${escapeHtml(c.data?.traceback || "")}</pre>
-      `;
-      crashEl.appendChild(div);
+  // meta color totals
+  const colorTotals = {};
+  for (const e of events) {
+    if (e.type !== "buy_screen_end") continue;
+    const colors = e.data?.meta?.colors;
+    if (!colors) continue;
+    for (const k of Object.keys(colors)) colorTotals[k] = (colorTotals[k] || 0) + Number(colors[k] || 0);
+  }
+  renderBars("chart-colors", colorTotals, { sortKey: "value-desc" });
+
+  // meta tiers reached
+  const tierCounts = {};
+  for (const e of events) {
+    if (e.type !== "buy_screen_end") continue;
+    const tiers = e.data?.meta?.tiers;
+    if (!tiers) continue;
+    for (const color of Object.keys(tiers)) {
+      const t = Number(tiers[color] || 0);
+      if (t > 0) {
+        const key = color + " T" + t;
+        tierCounts[key] = (tierCounts[key] || 0) + 1;
+      }
     }
   }
-
-  // ---- raw events ----
-  $("raw").textContent = events.slice(0, 50).map((e) => JSON.stringify(e)).join("\n");
+  renderBars("chart-tiers", tierCounts, { sortKey: "value-desc" });
 }
 
 function renderBars(elId, counts, opts = {}) {
   const el = $(elId);
+  if (!el) return;
   el.innerHTML = "";
   let entries = Object.entries(counts);
   if (entries.length === 0) {
@@ -238,6 +348,7 @@ function renderBars(elId, counts, opts = {}) {
 
 function renderStacked(elId, byLevel) {
   const el = $(elId);
+  if (!el) return;
   el.innerHTML = "";
   const entries = Object.entries(byLevel).sort((a, b) => Number(a[0]) - Number(b[0]));
   if (entries.length === 0) {
@@ -280,6 +391,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("refresh").addEventListener("click", refresh);
   $("logout").addEventListener("click", clearCreds);
   $("day").addEventListener("change", refresh);
+  $("type-filter").addEventListener("change", refresh);
 
   if (localStorage.getItem(LS_URL) && localStorage.getItem(LS_TOKEN)) {
     loadDays().then(refresh);
