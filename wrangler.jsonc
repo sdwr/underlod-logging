@@ -9,16 +9,9 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
-	],
-	// R2 bucket binding. Create the bucket once with:
-	//   wrangler r2 bucket create underlod-logging
-	"r2_buckets": [
-		{
-			"binding": "BUCKET",
-			"bucket_name": "underlod-logging"
-		}
 	]
-	// Secrets (never commit these — they're configured server-side):
-	//   wrangler secret put DASHBOARD_TOKEN
-	//     (pick a long random string; paste into the dashboard once on load)
+	// Secrets (set via `wrangler secret put`, never committed):
+	//   wrangler secret put DASHBOARD_TOKEN   <- gates /events read endpoint
+	//   wrangler secret put TURSO_URL         <- libsql://<db>-<org>.turso.io
+	//   wrangler secret put TURSO_TOKEN       <- DB auth token from `turso db tokens create`
 }
