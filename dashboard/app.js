@@ -19,7 +19,11 @@ function loadCreds() {
 }
 
 function saveCreds() {
-  localStorage.setItem(LS_URL, $("worker-url").value.trim().replace(/\/$/, ""));
+  let url = $("worker-url").value.trim().replace(/\/$/, "");
+  // auto-prepend https:// if the user pasted a bare hostname
+  if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+  $("worker-url").value = url;
+  localStorage.setItem(LS_URL, url);
   localStorage.setItem(LS_TOKEN, $("token").value.trim());
 }
 
