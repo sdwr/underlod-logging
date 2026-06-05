@@ -83,8 +83,10 @@ async function refresh() {
   const filt = [];
   if (day) filt.push(day);
   if (type) filt.push(type);
-  setStatus(`${data.event_count} events${filt.length ? " (" + filt.join(", ") + ")" : ""}.`);
-  render(data.events);
+  // server may or may not honor ?type=; filter client-side as a safety net
+  const filtered = type ? data.events.filter((e) => e.type === type) : data.events;
+  setStatus(`${filtered.length} events${filt.length ? " (" + filt.join(", ") + ")" : ""}.`);
+  render(filtered);
   $("empty").hidden = true;
   $("content").hidden = false;
 }
