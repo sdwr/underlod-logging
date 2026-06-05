@@ -146,6 +146,37 @@ function render(events) {
   }
   renderBars("chart-items", itemCount, { sortKey: "value-desc", limit: 25 });
 
+  // ---- meta color totals ----
+  // sum item counts per color across all buy_screen_end events (we have
+  // the per-color counts inline as meta.colors).
+  const colorTotals = {};
+  for (const e of events) {
+    if (e.type !== "buy_screen_end") continue;
+    const colors = e.data && e.data.meta && e.data.meta.colors;
+    if (!colors) continue;
+    for (const k of Object.keys(colors)) {
+      colorTotals[k] = (colorTotals[k] || 0) + Number(colors[k] || 0);
+    }
+  }
+  renderBars("chart-colors", colorTotals, { sortKey: "value-desc" });
+
+  // ---- meta tiers reached ----
+  // count how many buy_screen_end snapshots had each (color, tier) active.
+  const tierCounts = {};
+  for (const e of events) {
+    if (e.type !== "buy_screen_end") continue;
+    const tiers = e.data && e.data.meta && e.data.meta.tiers;
+    if (!tiers) continue;
+    for (const color of Object.keys(tiers)) {
+      const tier = Number(tiers[color] || 0);
+      if (tier > 0) {
+        const key = color + " T" + tier;
+        tierCounts[key] = (tierCounts[key] || 0) + 1;
+      }
+    }
+  }
+  renderBars("chart-tiers", tierCounts, { sortKey: "value-desc" });
+
   // ---- character pick rate ----
   const charCount = {};
   for (const e of events) {
