@@ -11,6 +11,9 @@ const DEFAULT_WORKER_URL = "https://underlod-logging.sdwr.workers.dev";
 
 const $ = (id) => document.getElementById(id);
 
+// Last rendered event set, so changing the sort can re-render without refetching.
+let lastRendered = [];
+
 function setStatus(msg, isError = false) {
   const s = $("status");
   s.textContent = msg;
@@ -110,6 +113,7 @@ async function refresh() {
 // ============================================================
 
 function render(events) {
+  lastRendered = events;
   renderStats(events);
   renderFeed(events);
   renderAggregates(events);
@@ -158,28 +162,53 @@ function renderFeed(events) {
     groups.get(key).push(e);
   }
 
-  // Build per-run metadata; events within a run go in chronological sequence.
+  // Build per-run metadata; events within a run are shown newest-first
+  // (reverse chronological) so the most recent event is at the top.
   const runs = [];
   for (const [run, evs] of groups) {
-    evs.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    evs.sort((a, b) => (b.time || "").localeCompare(a.time || ""));
     let firstTime = "", lastTime = "";
     for (const e of evs) {
       const t = e.time || "";
       if (t && (!firstTime || t < firstTime)) firstTime = t;
       if (t > lastTime) lastTime = t;
     }
-    runs.push({ run, evs, firstTime, lastTime, hasCrash: evs.some((e) => e.type === "crash") });
+    // All events in a run share a player hash; take the first non-empty one,
+    // falling back to the longer install id, then "?".
+    let player = "";
+    for (const e of evs) { if (e.player) { player = e.player; break; } }
+    if (!player) for (const e of evs) { if (e.install) { player = e.install; break; } }
+    runs.push({ run, evs, firstTime, lastTime, player: player || "?",
+      hasCrash: evs.some((e) => e.type === "crash") });
   }
 
-  // Sort runs by most recent event, newest first.
-  runs.sort((a, b) => (b.lastTime || "").localeCompare(a.lastTime || ""));
+  const mode = ($("sort") && $("sort").value) || "recent";
+  if (mode === "player") {
+    // Group by player: order players by their most-recent activity, and runs
+    // within a player newest-first.
+    const lastByPlayer = new Map();
+    for (const r of runs) {
+      const cur = lastByPlayer.get(r.player) || "";
+      if ((r.lastTime || "") > cur) lastByPlayer.set(r.player, r.lastTime || "");
+    }
+    runs.sort((a, b) => {
+      const pa = lastByPlayer.get(a.player) || "", pb = lastByPlayer.get(b.player) || "";
+      if (pa !== pb) return pb.localeCompare(pa);        // newest player first
+      if (a.player !== b.player) return a.player.localeCompare(b.player);
+      return (b.lastTime || "").localeCompare(a.lastTime || ""); // newest run first
+    });
+  } else {
+    // Sort runs by most recent event, newest first.
+    runs.sort((a, b) => (b.lastTime || "").localeCompare(a.lastTime || ""));
+  }
 
   for (const r of runs) el.appendChild(runGroup(r));
 }
 
 // Most recent character lineup seen in a run's events, for the summary line.
+// evs is sorted newest-first, so the first match is the most recent.
 function runCharacters(evs) {
-  for (let i = evs.length - 1; i >= 0; i--) {
+  for (let i = 0; i < evs.length; i++) {
     const units = evs[i].data?.units;
     if (Array.isArray(units) && units.length) {
       const names = units.map((u) => u.character).filter(Boolean);
@@ -205,6 +234,7 @@ function runGroup(r) {
   sum.className = "run-head";
   sum.innerHTML = `
     <span class="run-id">${escapeHtml(runShort)}</span>
+    ${r.player && r.player !== "?" ? `<span class="tag tag-player" title="player">▢ ${escapeHtml(r.player)}</span>` : ""}
     ${r.hasCrash ? '<span class="tag tag-crash">crash</span>' : ""}
     <span class="run-meta">${r.evs.length} events · ${escapeHtml(countTxt)}</span>
     ${chars ? `<span class="run-chars">${escapeHtml(chars)}</span>` : ""}
@@ -473,6 +503,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("logout").addEventListener("click", clearCreds);
   $("day").addEventListener("change", refresh);
   $("type-filter").addEventListener("change", refresh);
+  // Sort is purely client-side — re-render the cached events, no refetch.
+  $("sort").addEventListener("change", () => render(lastRendered));
 
   if (localStorage.getItem(LS_URL) && localStorage.getItem(LS_TOKEN)) {
     loadDays().then(refresh);

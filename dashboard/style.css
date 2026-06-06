@@ -133,6 +133,7 @@ details.panel[open] summary::before { content: "▾ "; }
 .tag-win, .tag-run_complete { background: var(--win); color: #0a200a; border-color: var(--win); }
 .tag-loss { background: var(--loss); color: #200a0a; border-color: var(--loss); }
 .tag-crash { background: var(--loss); color: #200a0a; border-color: var(--loss); }
+.tag-player { background: var(--panel); color: var(--muted); border-color: var(--border); text-transform: none; letter-spacing: 0; font-family: ui-monospace, monospace; }
 .tag-muted { color: var(--muted); }
 
 .event-body { font-size: 12px; }
