@@ -107,20 +107,33 @@ async function listEvents(req: Request, env: WorkerEnv): Promise<Response> {
 	// keys descending so the most recent day appears first)
 	const keys = listing.objects.map((o) => o.key).sort().reverse().slice(0, limit);
 
-	// fetch in parallel, but keep memory bounded. allSettled so one failed
-	// read can't reject the whole response (which would surface as a CORS-less
-	// 500 in the browser).
+	// Read in small batches. R2 .get() opens a response body stream and Workers
+	// caps the number of *concurrently open* streams (~6) — opening all keys at
+	// once throws "Response closed due to connection limit". So within each
+	// batch we open and fully consume (.text()) before moving to the next.
 	const events: any[] = [];
-	const reads = await Promise.allSettled(keys.map((k) => env.BUCKET.get(k)));
-	for (const r of reads) {
-		if (r.status !== "fulfilled" || !r.value) continue;
-		const body = await r.value.text();
-		for (const line of body.split("\n")) {
-			if (!line.trim()) continue;
-			try {
-				events.push(JSON.parse(line));
-			} catch {
-				// drop malformed lines silently
+	const CONCURRENCY = 6;
+	for (let i = 0; i < keys.length; i += CONCURRENCY) {
+		const batch = keys.slice(i, i + CONCURRENCY);
+		const bodies = await Promise.all(
+			batch.map(async (k) => {
+				try {
+					const obj = await env.BUCKET.get(k);
+					return obj ? await obj.text() : null;
+				} catch {
+					return null; // skip a single unreadable object
+				}
+			}),
+		);
+		for (const body of bodies) {
+			if (!body) continue;
+			for (const line of body.split("\n")) {
+				if (!line.trim()) continue;
+				try {
+					events.push(JSON.parse(line));
+				} catch {
+					// drop malformed lines silently
+				}
 			}
 		}
 	}
