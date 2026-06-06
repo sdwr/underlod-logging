@@ -24,7 +24,10 @@ const CORS = {
 
 const MAX_BODY_BYTES = 200_000;     // per POST
 const MAX_LIST_KEYS = 1000;          // per /events response
-const MAX_READ_FILES = 200;          // per /events response
+// Each file read is a subrequest. The Workers free plan caps subrequests at
+// 50 per invocation (1000 on paid); stay under the free limit so a large
+// bucket can't blow up the read with "Too many subrequests".
+const MAX_READ_FILES = 45;           // per /events response
 
 function json(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
@@ -104,12 +107,14 @@ async function listEvents(req: Request, env: WorkerEnv): Promise<Response> {
 	// keys descending so the most recent day appears first)
 	const keys = listing.objects.map((o) => o.key).sort().reverse().slice(0, limit);
 
-	// fetch in parallel, but keep memory bounded
+	// fetch in parallel, but keep memory bounded. allSettled so one failed
+	// read can't reject the whole response (which would surface as a CORS-less
+	// 500 in the browser).
 	const events: any[] = [];
-	const reads = await Promise.all(keys.map((k) => env.BUCKET.get(k)));
-	for (const obj of reads) {
-		if (!obj) continue;
-		const body = await obj.text();
+	const reads = await Promise.allSettled(keys.map((k) => env.BUCKET.get(k)));
+	for (const r of reads) {
+		if (r.status !== "fulfilled" || !r.value) continue;
+		const body = await r.value.text();
 		for (const line of body.split("\n")) {
 			if (!line.trim()) continue;
 			try {
@@ -145,15 +150,21 @@ export default {
 	async fetch(req: Request, env: WorkerEnv): Promise<Response> {
 		if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
-		const url = new URL(req.url);
+		try {
+			const url = new URL(req.url);
 
-		if (url.pathname === "/ingest") return ingest(req, env);
-		if (url.pathname === "/events") return listEvents(req, env);
-		if (url.pathname === "/days") return listDays(req, env);
-		if (url.pathname === "/" || url.pathname === "/health") {
-			return text("UNDERLOD telemetry worker. POST /ingest, GET /events (auth), GET /days (auth).");
+			if (url.pathname === "/ingest") return await ingest(req, env);
+			if (url.pathname === "/events") return await listEvents(req, env);
+			if (url.pathname === "/days") return await listDays(req, env);
+			if (url.pathname === "/" || url.pathname === "/health") {
+				return text("UNDERLOD telemetry worker. POST /ingest, GET /events (auth), GET /days (auth).");
+			}
+
+			return text("not found", 404);
+		} catch (e: any) {
+			// Always return CORS headers, even on failure — otherwise the browser
+			// reports a generic CORS error and the real cause is invisible.
+			return text("worker error: " + (e?.message || String(e)), 500);
 		}
-
-		return text("not found", 404);
 	},
 } satisfies ExportedHandler<WorkerEnv>;
