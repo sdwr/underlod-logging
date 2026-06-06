@@ -25,6 +25,13 @@ function loadCreds() {
 function saveCreds() {
   let url = $("worker-url").value.trim().replace(/\/$/, "");
   if (url && !/^https?:\/\//i.test(url)) url = "https://" + url;
+  // This page is served over https, so an http:// worker URL would be blocked
+  // as mixed content and fetch() rejects with an opaque "Failed to fetch".
+  // Upgrade it (except for localhost, used during local dev).
+  if (url && location.protocol === "https:" && /^http:\/\//i.test(url) &&
+      !/^http:\/\/(localhost|127\.0\.0\.1)/i.test(url)) {
+    url = url.replace(/^http:/i, "https:");
+  }
   $("worker-url").value = url;
   localStorage.setItem(LS_URL, url);
   localStorage.setItem(LS_TOKEN, $("token").value.trim());
@@ -44,9 +51,16 @@ async function api(path) {
   const base = localStorage.getItem(LS_URL);
   const token = localStorage.getItem(LS_TOKEN);
   if (!base || !token) throw new Error("missing worker URL or token");
-  const res = await fetch(base + path, {
-    headers: { Authorization: "Bearer " + token },
-  });
+  let res;
+  try {
+    res = await fetch(base + path, {
+      headers: { Authorization: "Bearer " + token },
+    });
+  } catch (e) {
+    // Network-level failure: bad/unreachable host, mixed content, DNS, or a
+    // browser extension blocking the request. Distinguish from HTTP errors.
+    throw new Error(`could not reach worker at ${base} — check the URL, your network, or ad-blockers (${e.message})`);
+  }
   if (res.status === 401) throw new Error("unauthorized — check the token");
   if (!res.ok) throw new Error("worker returned " + res.status);
   return res.json();
@@ -56,9 +70,9 @@ async function loadDays() {
   const sel = $("day");
   try {
     const { days } = await api("/days");
-    // server returns [{day, count}] — keep the (all recent) option, append days
+    // worker returns a plain array of "YYYY-MM-DD" strings.
     sel.innerHTML = '<option value="">(all recent)</option>' +
-      days.map((d) => `<option value="${d.day}">${d.day} (${d.count})</option>`).join("");
+      (days || []).map((d) => `<option value="${d}">${d}</option>`).join("");
   } catch (e) {
     console.warn("days endpoint failed", e);
   }
