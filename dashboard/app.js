@@ -149,9 +149,74 @@ function renderFeed(events) {
     el.innerHTML = '<div class="muted">no events.</div>';
     return;
   }
+
+  // Group events by run id (events without one bucket under "(no run)").
+  const groups = new Map();
   for (const e of events) {
-    el.appendChild(eventCard(e));
+    const key = e.run || "(no run)";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
   }
+
+  // Build per-run metadata; events within a run go in chronological sequence.
+  const runs = [];
+  for (const [run, evs] of groups) {
+    evs.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    let firstTime = "", lastTime = "";
+    for (const e of evs) {
+      const t = e.time || "";
+      if (t && (!firstTime || t < firstTime)) firstTime = t;
+      if (t > lastTime) lastTime = t;
+    }
+    runs.push({ run, evs, firstTime, lastTime, hasCrash: evs.some((e) => e.type === "crash") });
+  }
+
+  // Sort runs by most recent event, newest first.
+  runs.sort((a, b) => (b.lastTime || "").localeCompare(a.lastTime || ""));
+
+  for (const r of runs) el.appendChild(runGroup(r));
+}
+
+// Most recent character lineup seen in a run's events, for the summary line.
+function runCharacters(evs) {
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const units = evs[i].data?.units;
+    if (Array.isArray(units) && units.length) {
+      const names = units.map((u) => u.character).filter(Boolean);
+      if (names.length) return names.join(", ");
+    }
+  }
+  return "";
+}
+
+function runGroup(r) {
+  const det = document.createElement("details");
+  det.className = "run" + (r.hasCrash ? " run-crash" : "");
+  det.open = true;
+
+  const last = (r.lastTime || "").replace("T", " ").replace("Z", "");
+  const chars = runCharacters(r.evs);
+  const counts = {};
+  for (const e of r.evs) counts[e.type || "?"] = (counts[e.type || "?"] || 0) + 1;
+  const countTxt = Object.entries(counts).map(([t, n]) => `${t}×${n}`).join("  ");
+  const runShort = r.run === "(no run)" ? "(no run)" : r.run;
+
+  const sum = document.createElement("summary");
+  sum.className = "run-head";
+  sum.innerHTML = `
+    <span class="run-id">${escapeHtml(runShort)}</span>
+    ${r.hasCrash ? '<span class="tag tag-crash">crash</span>' : ""}
+    <span class="run-meta">${r.evs.length} events · ${escapeHtml(countTxt)}</span>
+    ${chars ? `<span class="run-chars">${escapeHtml(chars)}</span>` : ""}
+    <span class="run-time">${escapeHtml(last)}</span>
+  `;
+  det.appendChild(sum);
+
+  const body = document.createElement("div");
+  body.className = "run-events";
+  for (const e of r.evs) body.appendChild(eventCard(e));
+  det.appendChild(body);
+  return det;
 }
 
 function eventCard(e) {
