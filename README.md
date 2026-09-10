@@ -3,7 +3,8 @@
 Telemetry backend and dashboard for [UNDERLOD](https://github.com/sdwr/underlod-items).
 
 - **Worker** (`src/`): Cloudflare Worker that accepts NDJSON crash + gameplay events from the game and stores them in R2. Read API gated by a Bearer token.
-- **Dashboard** (`dashboard/`): static HTML/JS deployed to GitHub Pages. Prompts for the worker URL + token on load, fetches events, renders simple charts.
+- **Dashboard** (`dashboard/`): static HTML/JS deployed to GitHub Pages. Prompts for the worker URL + token on load, fetches the rollup summary + latest events, renders activity-over-time, survival, and aggregate charts plus a run feed.
+- **Rollups**: a Worker can only open ~50 subrequests per invocation on the free plan, so reading raw history is capped at ~45 files. Instead each receipt day is folded into `summary/<day>.json` (incrementally, via a cursor) and merged into `summary/all.json`, which the dashboard reads in one call. An hourly cron rolls up today + yesterday; the dashboard backfills any older day that is not complete when it loads.
 
 ## Security model
 
@@ -12,7 +13,7 @@ Telemetry backend and dashboard for [UNDERLOD](https://github.com/sdwr/underlod-
 | Worker source | this repo | yes |
 | Worker URL | shipped in the game binary | effectively yes |
 | `POST /ingest` | open to the world | yes — that's how the game writes |
-| `GET /events`, `GET /days` | requires `Authorization: Bearer <DASHBOARD_TOKEN>` | no |
+| `GET /events`, `GET /days`, `GET /summary`, `POST /rollup` | requires `Authorization: Bearer <DASHBOARD_TOKEN>` | no |
 | `DASHBOARD_TOKEN` | Cloudflare Worker secret + your dashboard localStorage | no |
 | R2 bucket contents | only readable through the worker | no |
 | Dashboard HTML/JS | GitHub Pages | yes (no secrets in it) |
@@ -82,10 +83,20 @@ POST /ingest               body: NDJSON, one event per line. open.
 GET  /events               returns latest 100 files of events. auth.
 GET  /events?day=YYYY-MM-DD&limit=N    auth.
 GET  /days                 returns list of days with events. auth.
+GET  /summary              { today, days, all } - all = merged per-day rollups. auth.
+POST /rollup?day=YYYY-MM-DD  fold one batch (<= 38 files) of that day into
+                           summary/<day>.json + summary/all.json. Returns
+                           { remaining } - call again until false. auth.
 GET  /health               status string. open.
 ```
 
-Limits: 200 KB per POST, 200 files per `/events` read.
+Limits: 200 KB per POST, 45 files per `/events` read, 38 files per `/rollup` call.
+
+Raw files are keyed `events/<receipt-day>/<HH-MM-SS.mmm>-<uuid>.ndjson` (time-prefixed
+so rollups can resume from a cursor; older files are bare UUIDs and still work since
+past days never gain files). Rollup metrics are bucketed by the event's own `time`
+date (clamped to the receipt day), so a queue flushed days later still lands on the
+day it was played. Cron: `15 * * * *` in [wrangler.jsonc](wrangler.jsonc).
 
 ## Event schema
 
@@ -125,7 +136,7 @@ cd dashboard && python -m http.server 8000
 # http://localhost:8000
 ```
 
-When testing locally, point the dashboard at `http://localhost:8787` and put the token in.
+When testing locally, put `DASHBOARD_TOKEN=whatever` in `.dev.vars` (gitignored), point the dashboard at `http://localhost:8787` via the settings gear, and paste the same token. Seed local R2 with `npx wrangler r2 object put underlod-logging/events/<day>/<key>.ndjson --file x.ndjson --local`.
 
 ## Reading from R2 directly (escape hatch)
 

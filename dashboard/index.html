@@ -7,93 +7,129 @@
 <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-<header>
-  <h1>UNDERLOD <span class="muted">telemetry</span></h1>
-  <div class="controls">
-    <label>
-      worker URL
-      <input id="worker-url" type="text" placeholder="https://underlod-logging.<you>.workers.dev" />
-    </label>
-    <label>
-      token
-      <input id="token" type="password" placeholder="DASHBOARD_TOKEN" />
-    </label>
-    <label>
-      day
-      <select id="day"><option value="">(all recent)</option></select>
-    </label>
-    <label>
-      type
-      <select id="type-filter">
-        <option value="">(all)</option>
-        <option value="buy_screen_end">buy_screen_end</option>
-        <option value="level_end">level_end</option>
-        <option value="crash">crash</option>
-      </select>
-    </label>
-    <label>
-      sort
-      <select id="sort">
-        <option value="recent">most recent</option>
-        <option value="player">player</option>
-      </select>
-    </label>
-    <button id="refresh">refresh</button>
-    <button id="logout" class="ghost">forget</button>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">▣</span>
+    <h1>UNDERLOD <span class="muted">telemetry</span></h1>
   </div>
-  <div id="status" class="status"></div>
+
+  <div class="range" role="group" aria-label="date range">
+    <button data-range="7">7d</button>
+    <button data-range="30" class="active">30d</button>
+    <button data-range="90">90d</button>
+    <button data-range="0">all</button>
+  </div>
+
+  <div class="topbar-right">
+    <span id="status" class="status" aria-live="polite"></span>
+    <button id="refresh" class="btn primary">refresh</button>
+    <button id="settings-toggle" class="btn icon" title="connection settings" aria-expanded="false">⚙</button>
+  </div>
 </header>
+
+<section id="settings" class="settings" hidden>
+  <label>
+    worker URL
+    <input id="worker-url" type="text" placeholder="https://underlod-logging.<you>.workers.dev" autocomplete="off" spellcheck="false" />
+  </label>
+  <label>
+    token
+    <input id="token" type="password" placeholder="DASHBOARD_TOKEN" autocomplete="off" />
+  </label>
+  <button id="save" class="btn primary">save &amp; refresh</button>
+  <button id="logout" class="btn ghost">forget</button>
+  <p class="hint">Stored in this browser's localStorage only. No server-side accounts.</p>
+</section>
 
 <main>
   <section id="empty" class="empty">
     <p>Enter the worker URL and token, then refresh.</p>
-    <p class="muted">Both are stored in localStorage on this device only. No server-side accounts.</p>
+    <p class="muted">Open the ⚙ settings to paste them in.</p>
   </section>
 
   <div id="content" hidden>
-    <section class="cards">
-      <div class="card"><div class="num" id="stat-events">0</div><div class="lbl">events</div></div>
-      <div class="card"><div class="num" id="stat-runs">0</div><div class="lbl">unique runs</div></div>
-      <div class="card"><div class="num" id="stat-installs">0</div><div class="lbl">unique installs</div></div>
-      <div class="card"><div class="num" id="stat-crashes">0</div><div class="lbl">crashes</div></div>
-      <div class="card"><div class="num" id="stat-wins">0</div><div class="lbl">run completes</div></div>
-      <div class="card"><div class="num" id="stat-losses">0</div><div class="lbl">deaths</div></div>
+    <!-- period stats -->
+    <section class="tiles" id="tiles"></section>
+
+    <!-- activity over time -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Activity <span class="muted" id="activity-sub"></span></h2>
+        <div class="panel-tools">
+          <div class="legend" id="activity-legend"></div>
+          <button class="btn ghost small" id="activity-table-toggle" aria-pressed="false">table</button>
+        </div>
+      </div>
+      <div id="activity-chart" class="linechart"></div>
+      <div id="activity-table" class="table-wrap" hidden></div>
     </section>
 
+    <!-- aggregate grid -->
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head"><h2>Level survival <span class="muted">share of runs reaching each level</span></h2></div>
+        <div id="chart-survival" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Outcomes by level</h2>
+          <div class="legend" id="outcome-legend"></div>
+        </div>
+        <div id="chart-outcomes" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Character picks</h2></div>
+        <div id="chart-chars" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Most-equipped items <span class="muted">top 20</span></h2></div>
+        <div id="chart-items" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Crash messages</h2></div>
+        <div id="chart-crashes" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Platform &amp; version</h2></div>
+        <div id="chart-platform" class="bars"></div>
+      </div>
+    </section>
+
+    <!-- recent runs (raw feed, last ~45 uploads) -->
     <section class="panel">
-      <h2>runs <span class="muted">(most recent activity first · events in sequence)</span></h2>
+      <div class="panel-head">
+        <h2>Recent runs <span class="muted" id="runs-sub"></span></h2>
+        <div class="panel-tools">
+          <label class="inline">type
+            <select id="type-filter">
+              <option value="">all</option>
+              <option value="buy_screen_end">buy_screen_end</option>
+              <option value="level_end">level_end</option>
+              <option value="crash">crash</option>
+            </select>
+          </label>
+          <label class="inline">day
+            <select id="day"><option value="">latest</option></select>
+          </label>
+          <label class="inline">sort
+            <select id="sort">
+              <option value="recent">recent</option>
+              <option value="player">player</option>
+            </select>
+          </label>
+        </div>
+      </div>
       <div id="feed" class="feed"></div>
     </section>
 
-    <details class="panel">
-      <summary><h2>aggregates</h2></summary>
-      <div class="panel-inner">
-        <h3>deaths by level</h3>
-        <div id="chart-deaths" class="chart"></div>
-
-        <h3>win/loss by level</h3>
-        <div id="chart-winloss" class="chart"></div>
-
-        <h3>most-equipped items at level start</h3>
-        <div id="chart-items" class="chart"></div>
-
-        <h3>character pick rate</h3>
-        <div id="chart-chars" class="chart"></div>
-
-        <h3>meta color totals</h3>
-        <div id="chart-colors" class="chart"></div>
-
-        <h3>meta tiers reached</h3>
-        <div id="chart-tiers" class="chart"></div>
-      </div>
-    </details>
-
-    <details class="panel">
-      <summary><h2>raw events <span class="muted">(latest 50)</span></h2></summary>
+    <details class="panel collapsible">
+      <summary><h2>Raw events <span class="muted">latest 50</span></h2></summary>
       <pre id="raw"></pre>
     </details>
   </div>
 </main>
+
+<div id="tooltip" class="tooltip" hidden></div>
 
 <script src="./app.js"></script>
 </body>
