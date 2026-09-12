@@ -30,9 +30,9 @@ describe("worker", () => {
 			// two files; the second holds events whose client time is the previous day
 			await env.BUCKET.put(`events/${day}/a.ndjson`, [
 				ev("buy_screen_end", "r1", "2025-03-02T10:00:00Z", { level: 1, units: [{ character: "knight", items: ["sword", ""] }] }),
-				ev("level_end", "r1", "2025-03-02T10:05:00Z", { outcome: "win", level: 1, time_elapsed: 60 }),
+				ev("level_end", "r1", "2025-03-02T10:05:00Z", { outcome: "win", level: 1, time_elapsed: 60, damage_dealt: 500, damage_taken: 120 }),
 				ev("buy_screen_end", "r1", "2025-03-02T10:06:00Z", { level: 2, units: [{ character: "knight", items: ["sword"] }] }),
-				ev("level_end", "r1", "2025-03-02T10:10:00Z", { outcome: "loss", level: 2, time_elapsed: 40 }),
+				ev("level_end", "r1", "2025-03-02T10:10:00Z", { outcome: "loss", level: 2, time_elapsed: 40, damage_dealt: 300, damage_taken: 400 }),
 			].join("\n"));
 			await env.BUCKET.put(`events/${day}/b.ndjson`, [
 				ev("crash", "r2", "2025-03-01T23:50:00Z", { message: "attempt to index nil\nmore" }),
@@ -51,7 +51,10 @@ describe("worker", () => {
 			const d = s.all.days[day];
 			expect(d.complete).toBe(true);
 			const m2 = d.dates["2025-03-02"];
-			expect(m2).toMatchObject({ events: 4, runs: 1, installs: 1, wins: 1, losses: 1, level_ends: 2, time_elapsed: 100 });
+			expect(m2).toMatchObject({ events: 4, runs: 1, installs: 1, wins: 1, losses: 1, level_ends: 2, time_elapsed: 100, damage_dealt: 800, damage_taken: 520 });
+			expect(m2.ends_by_level).toEqual({ "1": 1, "2": 1 });
+			expect(m2.duration_by_level).toEqual({ "1": 60, "2": 40 });
+			expect(m2.damage_taken_by_level).toEqual({ "1": 120, "2": 400 });
 			expect(m2.level_starts).toEqual({ "1": 1, "2": 1 });
 			expect(m2.deaths_by_level).toEqual({ "2": 1 });
 			expect(m2.chars).toEqual({ knight: 2 });

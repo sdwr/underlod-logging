@@ -182,8 +182,9 @@ function rebuildDates() {
 function emptyMetrics() {
   return {
     events: 0, runs: 0, installs: 0, crashes: 0, level_ends: 0,
-    wins: 0, losses: 0, completes: 0, time_elapsed: 0,
-    level_starts: {}, deaths_by_level: {}, wins_by_level: {},
+    wins: 0, losses: 0, completes: 0, time_elapsed: 0, damage_dealt: 0, damage_taken: 0,
+    level_starts: {}, deaths_by_level: {}, wins_by_level: {}, ends_by_level: {},
+    duration_by_level: {}, damage_taken_by_level: {},
     chars: {}, items: {}, os: {}, versions: {}, crash_messages: {},
   };
 }
@@ -258,28 +259,31 @@ function renderTiles(cur, t, p) {
     { key: "completes", label: "run completes", good: "up" },
     { key: "losses", label: "deaths", good: null },
     { key: "crashes", label: "crashes", good: "down" },
-    { key: "events", label: "events", good: null },
+    { key: "avg_level_secs", label: "avg level time", good: null, unit: "s", derived: (m) => m.level_ends ? m.time_elapsed / m.level_ends : 0 },
+    { key: "avg_dmg_taken", label: "dmg taken / level", good: "down", derived: (m) => m.level_ends ? m.damage_taken / m.level_ends : 0 },
   ];
   const el = $("tiles");
   el.innerHTML = "";
   for (const d of defs) {
     const tile = document.createElement("div");
     tile.className = "tile";
-    const val = t[d.key] || 0;
+    const get = (m) => (d.derived ? d.derived(m) : m[d.key] || 0);
+    const val = get(t);
+    const unit = d.unit || "";
     let deltaHtml = "";
     if (p) {
-      const pv = p[d.key] || 0;
+      const pv = get(p);
       const diff = val - pv;
       let cls = "";
       if (diff !== 0 && d.good) cls = (diff > 0) === (d.good === "up") ? "up" : "down";
       const pct = pv > 0 ? ` (${diff > 0 ? "+" : ""}${Math.round(100 * diff / pv)}%)` : "";
-      const txt = diff === 0 ? "no change" : `${diff > 0 ? "+" : ""}${fmt(diff)}${pct}`;
+      const txt = fmt(Math.abs(diff)) === "0" ? "no change" : `${diff > 0 ? "+" : ""}${fmt(diff)}${unit}${pct}`;
       deltaHtml = `<span class="delta ${cls}" title="vs previous ${cur.length} days">${txt}</span>`;
     } else {
       deltaHtml = `<span class="delta">all time</span>`;
     }
-    tile.innerHTML = `<span class="lbl">${escapeHtml(d.label)}</span><span class="val">${fmt(val)}</span>${deltaHtml}`;
-    tile.appendChild(sparkline(cur.map((day) => (dates[day] || {})[d.key] || 0)));
+    tile.innerHTML = `<span class="lbl">${escapeHtml(d.label)}</span><span class="val">${fmt(val)}${unit}</span>${deltaHtml}`;
+    tile.appendChild(sparkline(cur.map((day) => (dates[day] ? get(dates[day]) : 0))));
     el.appendChild(tile);
   }
 }
@@ -464,6 +468,18 @@ function renderAggregates(t) {
     text: `${wl[lv].w}/${wl[lv].w + wl[lv].l}`,
   })));
 
+  // per-level averages: sum / number of level_end events at that level
+  const ends = t.ends_by_level || {};
+  const avgByLevel = (sums) => Object.keys(ends).filter((lv) => ends[lv] > 0)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((lv) => ({ lv, avg: (sums[lv] || 0) / ends[lv], n: ends[lv] }));
+  renderBars("chart-duration", avgByLevel(t.duration_by_level).map(({ lv, avg, n }) => ({
+    label: "L" + lv, segs: [{ v: avg, c: "var(--s-runs)", title: `${n} level end${n === 1 ? "" : "s"}` }], text: fmtSecs(avg),
+  })));
+  renderBars("chart-dmg-taken", avgByLevel(t.damage_taken_by_level).map(({ lv, avg, n }) => ({
+    label: "L" + lv, segs: [{ v: avg, c: "var(--s-crashes)", title: `${n} level end${n === 1 ? "" : "s"}` }], text: fmt(avg),
+  })));
+
   renderBars("chart-chars", topEntries(t.chars, 25).map(([k, v]) => ({ label: k, segs: [{ v, c: "var(--s-players)" }], text: String(v) })));
   renderBars("chart-items", topEntries(t.items, 20).map(([k, v]) => ({ label: k, segs: [{ v, c: "var(--accent)" }], text: String(v) })));
   renderBars("chart-crashes", topEntries(t.crash_messages, 15).map(([k, v]) => ({ label: k, mono: true, segs: [{ v, c: "var(--s-crashes)" }], text: String(v) })), { wide: true });
@@ -473,6 +489,11 @@ function renderAggregates(t) {
     ...topEntries(t.versions, 10).map(([k, v]) => ({ label: "v" + k, segs: [{ v, c: "var(--s-players)" }], text: String(v) })),
   ];
   renderBars("chart-platform", plat);
+}
+
+function fmtSecs(s) {
+  if (s >= 60) return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s`;
+  return `${Math.round(s)}s`;
 }
 
 function topEntries(obj, limit) {

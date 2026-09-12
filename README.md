@@ -121,6 +121,9 @@ Every event is one JSON object on one line:
 - **crash**: `{ message, traceback }`
 - **buy_screen_end**: `{ level, loop, ng_plus, difficulty, gold, times_rerolled, units: [{character, level, items: [6]}], passives, perks }`
 - **level_end**: `{ outcome: "win"|"loss"|"run_complete", level, loop, ng_plus, difficulty, time_elapsed, gold, units, damage_dealt, damage_taken, boss? }`
+  - `time_elapsed`: seconds of live combat on that level (door open -> clear/death; buy screen excluded), 0.1s resolution.
+  - `damage_dealt` / `damage_taken`: integer totals for that level (troop damage to enemies / enemy damage to troops).
+  - Rollups derive per-level averages from these (`duration_by_level`, `damage_taken_by_level` over `ends_by_level`).
 
 ## Local development
 

@@ -47,7 +47,10 @@ const ROLLUP_BATCH_FILES = 38;
 // R2 .get() opens a stream; Workers caps concurrently open streams (~6).
 const CONCURRENCY = 6;
 
-const SUMMARY_VERSION = 1;
+// Bump when DateMetrics changes shape: stale day files are rebuilt from raw
+// events and every day in all.json is marked incomplete so the dashboard
+// re-rolls them.
+const SUMMARY_VERSION = 2;
 const ALL_KEY = "summary/all.json";
 
 function json(body: unknown, status = 200): Response {
@@ -220,10 +223,15 @@ interface DateMetrics {
 	wins: number;          // level_end outcome=win
 	losses: number;        // level_end outcome=loss
 	completes: number;     // level_end outcome=run_complete
-	time_elapsed: number;  // sum over level_end
+	time_elapsed: number;  // sum over level_end (seconds, combat only)
+	damage_dealt: number;  // sum over level_end
+	damage_taken: number;  // sum over level_end
 	level_starts: Counts;  // buy_screen_end by level — survival curve source
 	deaths_by_level: Counts;
 	wins_by_level: Counts;
+	ends_by_level: Counts;          // level_end count by level (denominator for the two below)
+	duration_by_level: Counts;      // sum of time_elapsed by level
+	damage_taken_by_level: Counts;  // sum of damage_taken by level
 	chars: Counts;         // character picks at buy_screen_end
 	items: Counts;         // equipped items at buy_screen_end
 	os: Counts;
@@ -252,8 +260,9 @@ interface AllSummary {
 function emptyMetrics(): DateMetrics {
 	return {
 		events: 0, runs: 0, installs: 0, crashes: 0, level_ends: 0,
-		wins: 0, losses: 0, completes: 0, time_elapsed: 0,
-		level_starts: {}, deaths_by_level: {}, wins_by_level: {},
+		wins: 0, losses: 0, completes: 0, time_elapsed: 0, damage_dealt: 0, damage_taken: 0,
+		level_starts: {}, deaths_by_level: {}, wins_by_level: {}, ends_by_level: {},
+		duration_by_level: {}, damage_taken_by_level: {},
 		chars: {}, items: {}, os: {}, versions: {}, crash_messages: {},
 	};
 }
@@ -293,7 +302,16 @@ function foldEvent(sum: DaySummary, e: any) {
 		if (o === "loss") { m.losses++; bump(m.deaths_by_level, d.level); }
 		else if (o === "win") { m.wins++; bump(m.wins_by_level, d.level); }
 		else if (o === "run_complete") { m.completes++; bump(m.wins_by_level, d.level); }
-		if (typeof d.time_elapsed === "number") m.time_elapsed += d.time_elapsed;
+		bump(m.ends_by_level, d.level);
+		if (typeof d.time_elapsed === "number") {
+			m.time_elapsed += d.time_elapsed;
+			bump(m.duration_by_level, d.level, d.time_elapsed);
+		}
+		if (typeof d.damage_dealt === "number") m.damage_dealt += d.damage_dealt;
+		if (typeof d.damage_taken === "number") {
+			m.damage_taken += d.damage_taken;
+			bump(m.damage_taken_by_level, d.level, d.damage_taken);
+		}
 	} else if (e.type === "buy_screen_end") {
 		bump(m.level_starts, d.level);
 		for (const u of Array.isArray(d.units) ? d.units : []) {
@@ -351,6 +369,10 @@ async function rollupDay(env: WorkerEnv, day: string): Promise<{ summary: DaySum
 
 	// Merge into all.json (counts only; identity sets stay in the day file).
 	const all = (await getJson<AllSummary>(env, ALL_KEY)) || { version: SUMMARY_VERSION, updated: "", days: {} };
+	if (all.version !== SUMMARY_VERSION) {
+		// Shape changed: keep old numbers visible but flag every day for a re-roll.
+		for (const d of Object.values(all.days)) d.complete = false;
+	}
 	all.version = SUMMARY_VERSION;
 	all.updated = sum.updated;
 	all.days[day] = { updated: sum.updated, files: sum.files, complete: sum.complete, dates: sum.dates };
@@ -381,6 +403,9 @@ async function rollup(req: Request, env: WorkerEnv): Promise<Response> {
 async function summary(req: Request, env: WorkerEnv): Promise<Response> {
 	if (!authOk(req, env)) return unauthorized();
 	const [days, all] = await Promise.all([listDayPrefixes(env), getJson<AllSummary>(env, ALL_KEY)]);
+	if (all && all.version !== SUMMARY_VERSION) {
+		for (const d of Object.values(all.days)) d.complete = false;
+	}
 	return json({
 		today: todayUTC(),
 		days,
